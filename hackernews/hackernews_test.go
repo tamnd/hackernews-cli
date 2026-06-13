@@ -8,24 +8,25 @@ import (
 	"time"
 )
 
-func TestGet(t *testing.T) {
+func TestGetSendsUserAgent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("User-Agent") == "" {
 			t.Error("request carried no User-Agent")
 		}
-		_, _ = w.Write([]byte("ok"))
+		_, _ = w.Write([]byte(`"hello"`))
 	}))
 	defer srv.Close()
 
-	c := NewClient()
-	c.Rate = 0 // no pacing in the test
+	cfg := DefaultConfig()
+	cfg.Rate = 0
+	c := NewClient(cfg)
 
-	body, err := c.Get(context.Background(), srv.URL)
+	body, err := c.get(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != "ok" {
-		t.Errorf("body = %q, want %q", body, "ok")
+	if string(body) != `"hello"` {
+		t.Errorf("body = %q", body)
 	}
 }
 
@@ -37,20 +38,21 @@ func TestGetRetriesOn503(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		_, _ = w.Write([]byte("recovered"))
+		_, _ = w.Write([]byte(`"recovered"`))
 	}))
 	defer srv.Close()
 
-	c := NewClient()
-	c.Rate = 0
-	c.Retries = 5
+	cfg := DefaultConfig()
+	cfg.Rate = 0
+	cfg.Retries = 5
+	c := NewClient(cfg)
 
 	start := time.Now()
-	body, err := c.Get(context.Background(), srv.URL)
+	body, err := c.get(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != "recovered" {
+	if string(body) != `"recovered"` {
 		t.Errorf("body = %q after retries", body)
 	}
 	if hits != 3 {
@@ -58,5 +60,22 @@ func TestGetRetriesOn503(t *testing.T) {
 	}
 	if time.Since(start) < 500*time.Millisecond {
 		t.Error("retries did not back off")
+	}
+}
+
+func TestGetNullReturnsNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("null"))
+	}))
+	defer srv.Close()
+
+	cfg := DefaultConfig()
+	cfg.Rate = 0
+	c := NewClient(cfg)
+
+	var v any
+	err := c.getJSON(context.Background(), srv.URL, &v)
+	if err != ErrNotFound {
+		t.Fatalf("got %v, want ErrNotFound", err)
 	}
 }
