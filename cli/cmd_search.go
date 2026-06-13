@@ -55,12 +55,13 @@ func (a *App) updatesCmd() *cobra.Command {
 			if err != nil {
 				return mapFetchErr(err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "changed items:    %d\n", len(u.Items))
-			fmt.Fprintf(cmd.OutOrStdout(), "changed profiles: %d\n", len(u.Profiles))
+			w := cmd.OutOrStdout()
+			_, _ = fmt.Fprintf(w, "changed items:    %d\n", len(u.Items))
+			_, _ = fmt.Fprintf(w, "changed profiles: %d\n", len(u.Profiles))
 			if len(u.Items) > 0 {
-				fmt.Fprintln(cmd.OutOrStdout())
+				_, _ = fmt.Fprintln(w)
 				for _, id := range u.Items {
-					fmt.Fprintln(cmd.OutOrStdout(), id)
+					_, _ = fmt.Fprintln(w, id)
 				}
 			}
 			return nil
@@ -77,7 +78,7 @@ func (a *App) maxItemCmd() *cobra.Command {
 			if err != nil {
 				return mapFetchErr(err)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), id)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), id)
 			return nil
 		},
 	}
