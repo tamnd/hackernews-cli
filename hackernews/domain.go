@@ -63,6 +63,27 @@ func (Domain) Register(app *kit.App) {
 	}, bestStories)
 
 	kit.Handle(app, kit.OpMeta{
+		Name:    "ask",
+		Group:   "stories",
+		Summary: "List Ask HN stories",
+		Args:    []kit.Arg{{Name: "limit", Help: "max stories", Optional: true}},
+	}, askStories)
+
+	kit.Handle(app, kit.OpMeta{
+		Name:    "show",
+		Group:   "stories",
+		Summary: "List Show HN stories",
+		Args:    []kit.Arg{{Name: "limit", Help: "max stories", Optional: true}},
+	}, showStories)
+
+	kit.Handle(app, kit.OpMeta{
+		Name:    "jobs",
+		Group:   "stories",
+		Summary: "List HN job posts",
+		Args:    []kit.Arg{{Name: "limit", Help: "max stories", Optional: true}},
+	}, jobStories)
+
+	kit.Handle(app, kit.OpMeta{
 		Name:     "item",
 		Group:    "read",
 		Single:   true,
@@ -148,6 +169,45 @@ func newStories(ctx context.Context, in storiesInput, emit func(Item) error) err
 
 func bestStories(ctx context.Context, in storiesInput, emit func(Item) error) error {
 	items, err := in.Client.BestStories(ctx, in.Limit)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		if err := emit(it); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func askStories(ctx context.Context, in storiesInput, emit func(Item) error) error {
+	items, err := in.Client.AskStories(ctx, in.Limit)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		if err := emit(it); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func showStories(ctx context.Context, in storiesInput, emit func(Item) error) error {
+	items, err := in.Client.ShowStories(ctx, in.Limit)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		if err := emit(it); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func jobStories(ctx context.Context, in storiesInput, emit func(Item) error) error {
+	items, err := in.Client.JobStories(ctx, in.Limit)
 	if err != nil {
 		return err
 	}
