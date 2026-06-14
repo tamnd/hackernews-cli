@@ -2,6 +2,8 @@ package hackernews
 
 import (
 	"fmt"
+	"html"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -69,6 +71,36 @@ type Updates struct {
 	Profiles []string `json:"profiles"`
 }
 
+// Change is one entry from the updates firehose: either a changed item or a
+// changed profile. It is the flat record the updates command renders, so the
+// firehose prints in any output format like every other surface.
+type Change struct {
+	Kind  string `json:"kind"`  // "item" or "profile"
+	Value string `json:"value"` // item id (decimal) or username
+	URL   string `json:"url"`   // canonical HN link
+}
+
+// Changes flattens the updates payload into a single ordered record slice,
+// items first then profiles, matching the order HN returns them.
+func (u Updates) Changes() []Change {
+	out := make([]Change, 0, len(u.Items)+len(u.Profiles))
+	for _, id := range u.Items {
+		out = append(out, Change{
+			Kind:  "item",
+			Value: strconv.Itoa(id),
+			URL:   hnURL(id),
+		})
+	}
+	for _, name := range u.Profiles {
+		out = append(out, Change{
+			Kind:  "profile",
+			Value: name,
+			URL:   fmt.Sprintf("https://news.ycombinator.com/user?id=%s", name),
+		})
+	}
+	return out
+}
+
 // ─── wire types from Firebase ────────────────────────────────────────────────
 
 type hnItem struct {
@@ -105,7 +137,12 @@ func isoDate(unix int64) string {
 	return time.Unix(unix, 0).UTC().Format(time.RFC3339)
 }
 
+// stripTags turns HN's HTML comment/story bodies into plain text: it drops the
+// small tag vocabulary HN emits (<p>, <a>, <i>, <pre><code>) and then decodes
+// every HTML entity, including numeric and hex forms like &#x2F; that HN uses
+// heavily in URLs. <p> becomes a blank line so paragraph breaks survive.
 func stripTags(s string) string {
+	s = strings.ReplaceAll(s, "<p>", "\n\n")
 	var b strings.Builder
 	inTag := false
 	for _, r := range s {
@@ -118,16 +155,7 @@ func stripTags(s string) string {
 			b.WriteRune(r)
 		}
 	}
-	// collapse &amp; &lt; &gt; &quot; &#39;
-	out := b.String()
-	out = strings.ReplaceAll(out, "&amp;", "&")
-	out = strings.ReplaceAll(out, "&lt;", "<")
-	out = strings.ReplaceAll(out, "&gt;", ">")
-	out = strings.ReplaceAll(out, "&quot;", `"`)
-	out = strings.ReplaceAll(out, "&#39;", "'")
-	out = strings.ReplaceAll(out, "&apos;", "'")
-	out = strings.TrimSpace(out)
-	return out
+	return strings.TrimSpace(html.UnescapeString(b.String()))
 }
 
 func itemToStory(it *hnItem, rank int) Story {
