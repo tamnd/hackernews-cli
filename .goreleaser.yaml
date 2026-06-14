@@ -18,7 +18,7 @@ before:
 builds:
   - id: hn
     binary: hn
-    main: ./cmd/hn
+    main: ./cmd/hackernews
     env:
       - CGO_ENABLED=0
     flags:
