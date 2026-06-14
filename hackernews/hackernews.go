@@ -38,6 +38,8 @@ type Client struct {
 	rate       time.Duration
 	retries    int
 	workers    int
+	fbBase     string
+	algBase    string
 	mu         sync.Mutex
 	last       time.Time
 }
@@ -70,6 +72,8 @@ func NewClient(cfg Config) *Client {
 		rate:       cfg.Rate,
 		retries:    cfg.Retries,
 		workers:    cfg.Workers,
+		fbBase:     firebaseBase,
+		algBase:    algoliaBase,
 	}
 }
 
@@ -138,10 +142,7 @@ func (c *Client) pace() {
 
 func backoff(attempt int) time.Duration {
 	d := time.Duration(attempt) * 500 * time.Millisecond
-	if d > 5*time.Second {
-		d = 5 * time.Second
-	}
-	return d
+	return min(d, 5*time.Second)
 }
 
 // getJSON fetches and JSON-decodes into v. Returns ErrNotFound when the body is null.
@@ -167,7 +168,7 @@ func (c *Client) getJSON(ctx context.Context, rawURL string, v any) error {
 // showstories, jobstories.
 func (c *Client) StoryList(ctx context.Context, endpoint string, limit int) ([]Story, error) {
 	var ids []int
-	if err := c.getJSON(ctx, firebaseBase+"/"+endpoint+".json", &ids); err != nil {
+	if err := c.getJSON(ctx, c.fbBase+"/"+endpoint+".json", &ids); err != nil {
 		return nil, err
 	}
 	if limit > 0 && limit < len(ids) {
@@ -188,7 +189,7 @@ func (c *Client) resolveIDs(ctx context.Context, ids []int) ([]Story, error) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			var it hnItem
-			u := fmt.Sprintf("%s/item/%d.json", firebaseBase, itemID)
+			u := fmt.Sprintf("%s/item/%d.json", c.fbBase, itemID)
 			if err := c.getJSON(ctx, u, &it); err == nil && !it.Deleted && !it.Dead {
 				results[idx] = &it
 			}
@@ -211,7 +212,7 @@ func (c *Client) resolveIDs(ctx context.Context, ids []int) ([]Story, error) {
 // depth=0 returns the item only; depth=-1 returns the full tree.
 func (c *Client) Item(ctx context.Context, id int, depth int) (Story, []Comment, error) {
 	var it hnItem
-	u := fmt.Sprintf("%s/item/%d.json", firebaseBase, id)
+	u := fmt.Sprintf("%s/item/%d.json", c.fbBase, id)
 	if err := c.getJSON(ctx, u, &it); err != nil {
 		return Story{}, nil, fmt.Errorf("item %d: %w", id, err)
 	}
@@ -237,7 +238,7 @@ func (c *Client) fetchTree(ctx context.Context, kids []int, currentDepth, maxDep
 			defer wg.Done()
 			defer func() { <-sem }()
 			var it hnItem
-			u := fmt.Sprintf("%s/item/%d.json", firebaseBase, itemID)
+			u := fmt.Sprintf("%s/item/%d.json", c.fbBase, itemID)
 			if err := c.getJSON(ctx, u, &it); err == nil && !it.Deleted && !it.Dead {
 				items[idx] = &it
 			}
@@ -261,7 +262,7 @@ func (c *Client) fetchTree(ctx context.Context, kids []int, currentDepth, maxDep
 // User fetches a user profile. Returns the profile, the raw submitted ids, and any error.
 func (c *Client) User(ctx context.Context, username string) (User, []int, error) {
 	var u hnUser
-	rawURL := fmt.Sprintf("%s/user/%s.json", firebaseBase, url.PathEscape(username))
+	rawURL := fmt.Sprintf("%s/user/%s.json", c.fbBase, url.PathEscape(username))
 	if err := c.getJSON(ctx, rawURL, &u); err != nil {
 		return User{}, nil, fmt.Errorf("user %q: %w", username, err)
 	}
@@ -271,7 +272,7 @@ func (c *Client) User(ctx context.Context, username string) (User, []int, error)
 // MaxItem returns the current maximum item id.
 func (c *Client) MaxItem(ctx context.Context) (int, error) {
 	var id int
-	if err := c.getJSON(ctx, firebaseBase+"/maxitem.json", &id); err != nil {
+	if err := c.getJSON(ctx, c.fbBase+"/maxitem.json", &id); err != nil {
 		return 0, err
 	}
 	return id, nil
@@ -280,7 +281,7 @@ func (c *Client) MaxItem(ctx context.Context) (int, error) {
 // Updates returns recently changed item ids and profiles.
 func (c *Client) Updates(ctx context.Context) (Updates, error) {
 	var u Updates
-	if err := c.getJSON(ctx, firebaseBase+"/updates.json", &u); err != nil {
+	if err := c.getJSON(ctx, c.fbBase+"/updates.json", &u); err != nil {
 		return Updates{}, err
 	}
 	return u, nil
@@ -366,17 +367,14 @@ func (c *Client) Search(ctx context.Context, opts SearchOptions) ([]SearchHit, e
 	if limit <= 0 {
 		limit = 20
 	}
-	pageSize := limit
-	if pageSize > 50 {
-		pageSize = 50
-	}
+	pageSize := min(limit, 50)
 	params.Set("hitsPerPage", strconv.Itoa(pageSize))
 
 	var out []SearchHit
 	page := 0
 	for {
 		params.Set("page", strconv.Itoa(page))
-		rawURL := algoliaBase + endpoint + "?" + params.Encode()
+		rawURL := c.algBase + endpoint + "?" + params.Encode()
 		var resp algoliaResp
 		if err := c.getJSON(ctx, rawURL, &resp); err != nil {
 			return out, err
@@ -422,7 +420,10 @@ func algoliaHitToRecord(h algoliaHit, rank int) SearchHit {
 		Text:     text,
 		HNURL:    hnURL(id),
 	}
-	if h.StoryID != nil {
+	// story_id/story_title only make sense on comment hits, where they point at
+	// the parent story. On story hits Algolia echoes the story's own id, which is
+	// redundant, so drop it.
+	if typ == "comment" && h.StoryID != nil {
 		sh.StoryID = *h.StoryID
 		sh.StoryTitle = h.StoryTitle
 	}

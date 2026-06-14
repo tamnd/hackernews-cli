@@ -55,16 +55,11 @@ func (a *App) updatesCmd() *cobra.Command {
 			if err != nil {
 				return mapFetchErr(err)
 			}
-			w := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(w, "changed items:    %d\n", len(u.Items))
-			_, _ = fmt.Fprintf(w, "changed profiles: %d\n", len(u.Profiles))
-			if len(u.Items) > 0 {
-				_, _ = fmt.Fprintln(w)
-				for _, id := range u.Items {
-					_, _ = fmt.Fprintln(w, id)
-				}
+			changes := u.Changes()
+			if a.limit > 0 && a.limit < len(changes) {
+				changes = changes[:a.limit]
 			}
-			return nil
+			return a.renderOrEmpty(changes, len(changes))
 		},
 	}
 }
