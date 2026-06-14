@@ -4,21 +4,20 @@ description: "The output contract every command shares: formats, fields, and tem
 weight: 30
 ---
 
-Every list command in the fleet renders through one formatter, so the same flags
-work everywhere. Wire your commands through it as you add them, and this page
-describes what users get. Pick a format with `-o`, or let hn choose:
-a table when writing to a terminal, JSONL when piped.
+Every command renders through one formatter, so the same flags work everywhere.
+Pick a format with `-o`, or let `hn` choose: a table when writing to a terminal,
+JSONL when piped.
 
 ## Formats
 
 ```bash
-hn <command> -o table   # aligned columns for reading
-hn <command> -o jsonl   # one JSON object per line, for piping
-hn <command> -o json    # a single JSON array
-hn <command> -o csv     # spreadsheet friendly
-hn <command> -o tsv     # tab-separated
-hn <command> -o url     # just the URL column
-hn <command> -o raw     # the underlying bytes, unformatted
+hn top -o table   # aligned columns for reading
+hn top -o jsonl   # one JSON object per line, for piping
+hn top -o json    # a single JSON array
+hn top -o csv     # spreadsheet friendly
+hn top -o tsv     # tab-separated
+hn top -o url     # just the link for each record
+hn top -o raw     # the bare field values, space-separated, no header
 ```
 
 | Format | Best for |
@@ -27,27 +26,43 @@ hn <command> -o raw     # the underlying bytes, unformatted
 | `jsonl` | Piping into another tool, one object at a time |
 | `json` | Loading a whole result as an array |
 | `csv` / `tsv` | Spreadsheets and quick column math |
-| `url` | Feeding URLs into other commands |
-| `raw` | The unformatted bytes (response bodies, file contents) |
+| `url` | Feeding links into other commands |
+| `raw` | Bare values for `cut`, `awk`, and friends |
+
+A note on the two JSON formats: `json` prints an array, except when there is a
+single record, where it prints that one object. `jsonl` always prints one object
+per line, which is what you want in a stream.
+
+The `url` format prints each record's `url`, falling back to `hn_url` when a
+record has no external link (Ask HN posts, most jobs, and comments).
 
 ## Narrowing columns
 
-Keep only the fields you want:
+Keep only the fields you want, in the order you list them:
 
 ```bash
-hn <command> --fields id,title,url
+hn top --fields rank,score,title
+hn item 48517377 --depth -1 --fields depth,by,text
 ```
 
-`--no-header` drops the header row in `table` and `csv` output, which helps when
-a downstream tool expects bare rows.
+The field names are the JSON keys you see in `jsonl` output. `--no-header` drops
+the header row in `table`, `csv`, and `tsv`, which helps when a downstream tool
+expects bare rows.
 
 ## Templating rows
 
-For full control over each line, apply a Go text/template. Fields are the JSON
-keys, capitalised:
+For full control over each line, apply a Go text/template. The fields are the
+**lowercase JSON keys**:
 
 ```bash
-hn <command> --template '{{.URL}} {{.Title}}'
+hn top --template '{{.score}}  {{.title}}'
+hn top --template '{{.by}} -> {{.hn_url}}'
+```
+
+A `join` function is available for any list-valued field:
+
+```bash
+hn top --template '{{join "," .fields}}'
 ```
 
 ## Why auto-detection helps
@@ -56,8 +71,8 @@ Because the default adapts to the destination, the same command reads well by
 hand and parses cleanly in a pipe:
 
 ```bash
-hn <command>            # a table, because this is a terminal
-hn <command> | wc -l    # JSONL, because this is a pipe
+hn top            # a table, because this is a terminal
+hn top | wc -l    # JSONL, because this is a pipe
 ```
 
 You only reach for `-o` when you want something other than that default.
